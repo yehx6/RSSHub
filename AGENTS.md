@@ -128,5 +128,5 @@
 
 ## Skills
 
-- `skills/rsshub-route-rebuild`: Fix broken RSSHub route parsing, rebuild the Docker image, flush cache, and verify the feed.
+- `skills/rsshub-route-rebuild`: Unified workflow for adding or fixing RSSHub routes. Covers namespace/route metadata checks, RSS normalization, common parsing pitfalls, Docker rebuild, single-instance deployment on port `1200`, and final feed URL verification for FreshRSS usage.
 - `scripts/validate-skill.ps1`: Validate the RSSHub skill using the `minimind` conda environment path.
