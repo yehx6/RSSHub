@@ -1,0 +1,6 @@
+interface:
+  display_name: "RSSHub Route Rebuild"
+  short_description: "Fix RSSHub routes and rebuild Docker"
+  default_prompt: "Use $rsshub-route-rebuild to fix a broken RSSHub route, rebuild the image, and verify the feed."
+policy:
+  allow_implicit_invocation: true

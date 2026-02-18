@@ -125,3 +125,8 @@
 53. **Comments Language**: Write code comments in English for consistency and accessibility.
 
 54. **Parentheses in Arrow Functions**: Always use parentheses around arrow function parameters, even for single parameters.
+
+## Skills
+
+- `skills/rsshub-route-rebuild`: Fix broken RSSHub route parsing, rebuild the Docker image, flush cache, and verify the feed.
+- `scripts/validate-skill.ps1`: Validate the RSSHub skill using the `minimind` conda environment path.

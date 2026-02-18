@@ -39,7 +39,7 @@ async function handler(ctx) {
             selector: {
                 list: '.list',
                 item: 'li',
-                content: '#vsb_content',
+                content: '.v_news_content, #vsb_content, #vsb_content_2',
             },
             url: 'https://yz.szu.edu.cn/sszs/gg.htm',
         },
@@ -47,7 +47,7 @@ async function handler(ctx) {
             selector: {
                 list: '.list',
                 item: 'li',
-                content: '#vsb_content, #vsb_content_2',
+                content: '.v_news_content, #vsb_content, #vsb_content_2',
             },
             url: 'https://yz.szu.edu.cn/bszs/gg.htm',
         },
