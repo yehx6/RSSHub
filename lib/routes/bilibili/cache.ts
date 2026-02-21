@@ -6,7 +6,6 @@ import { config } from '@/config';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import logger from '@/utils/logger';
-import { getPuppeteerPage } from '@/utils/puppeteer';
 
 import utils from './utils';
 
@@ -35,27 +34,29 @@ const getCookie = (disableConfig = false) => {
     }
     const key = 'bili-cookie';
     return cache.tryGet(key, async () => {
-        let waitForRequest = new Promise<string>((resolve) => {
-            resolve('');
-        });
-        const { destory } = await getPuppeteerPage('https://space.bilibili.com/1/dynamic', {
-            onBeforeLoad: (page) => {
-                waitForRequest = new Promise<string>((resolve) => {
-                    page.on('requestfinished', async (request) => {
-                        if (request.url() === 'https://api.bilibili.com/x/web-interface/nav') {
-                            const cookies = await page.cookies();
-                            let cookieString = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
-                            cookieString = cookieString.replace(/b_lsid=[0-9A-F]+_[0-9A-F]+/, `b_lsid=${utils.lsid()}`);
-                            resolve(cookieString);
-                        }
-                    });
-                });
-            },
-        });
-        const cookieString = await waitForRequest;
-        logger.debug(`Got bilibili cookie: ${cookieString}`);
-        await destory();
-        return cookieString;
+        try {
+            const { headers } = await got('https://www.bilibili.com/', {
+                throwHttpErrors: false,
+            });
+            const rawSetCookie = headers['set-cookie'];
+            const setCookie = Array.isArray(rawSetCookie) ? rawSetCookie : rawSetCookie ? [rawSetCookie] : [];
+            const cookieString = setCookie
+                .map((cookieLine) => cookieLine.split(';')[0])
+                .filter(Boolean)
+                .join('; ')
+                .replace(/b_lsid=[0-9A-F]+_[0-9A-F]+/, `b_lsid=${utils.lsid()}`);
+
+            if (cookieString) {
+                logger.debug(`Got bilibili cookie: ${cookieString}`);
+                return cookieString;
+            }
+        } catch {
+            // Empty
+        }
+
+        const fallbackCookie = `b_lsid=${utils.lsid()}`;
+        logger.debug(`Fallback bilibili cookie: ${fallbackCookie}`);
+        return fallbackCookie;
     });
 };
 
@@ -79,9 +80,9 @@ const getRenderData = (uid) => {
     });
 };
 
-const getWbiVerifyString = () => {
+const getWbiVerifyString = async (renew = false) => {
     const key = 'bili-wbi-verify-string';
-    return cache.tryGet(key, async () => {
+    const getter = async () => {
         const cookie = await getCookie();
         const { data: navResponse } = await got('https://api.bilibili.com/x/web-interface/nav', {
             headers: {
@@ -115,7 +116,15 @@ const getWbiVerifyString = () => {
             r.charAt(t) && o.push(r.charAt(t));
         }
         return o.join('').slice(0, 32);
-    });
+    };
+
+    if (renew) {
+        const freshValue = await getter();
+        cache.set(key, freshValue, config.cache.routeExpire);
+        return freshValue;
+    }
+
+    return cache.tryGet(key, getter);
 };
 
 const getUsernameFromUID = (uid) => {

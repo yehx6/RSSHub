@@ -1,15 +1,11 @@
 import { load } from 'cheerio';
-import { raw } from 'hono/html';
-import { renderToString } from 'hono/jsx/dom/server';
 
-import { config } from '@/config';
-import ConfigNotFoundError from '@/errors/types/config-not-found';
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import got from '@/utils/got';
 
 export const route: Route = {
-    path: '/trending/:since/:language/:spoken_language?',
+    path: '/trending/:since/:language?/:spoken_language?',
     categories: ['programming'],
     example: '/github/trending/daily/javascript/en',
     view: ViewType.Notifications,
@@ -40,12 +36,7 @@ export const route: Route = {
         },
     },
     features: {
-        requireConfig: [
-            {
-                name: 'GITHUB_ACCESS_TOKEN',
-                description: '',
-            },
-        ],
+        requireConfig: false,
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
@@ -64,93 +55,140 @@ export const route: Route = {
     url: 'github.com/trending',
 };
 
-async function handler(ctx) {
-    if (!config.github || !config.github.access_token) {
-        throw new ConfigNotFoundError('GitHub trending RSS is disabled due to the lack of <a href="https://docs.rsshub.app/deploy/config#route-specific-configurations">relevant config</a>');
+function normalizeText(text?: string) {
+    return (text ?? '').replaceAll(/\s+/g, ' ').trim();
+}
+
+interface GitHubTrendingItem {
+    author?: string;
+    description: string;
+    link: string;
+    title: string;
+}
+
+interface GitHubSearchRepo {
+    description?: string;
+    forks_count?: number;
+    full_name: string;
+    html_url: string;
+    language?: string;
+    owner?: {
+        login?: string;
+    };
+    stargazers_count?: number;
+}
+
+async function fetchFallbackItems(language: string) {
+    const query = ['stars:>1', language ? `language:${language}` : undefined].filter(Boolean).join(' ');
+    const { data } = await got('https://api.github.com/search/repositories', {
+        headers: {
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'RSSHub',
+        },
+        searchParams: {
+            order: 'desc',
+            per_page: 25,
+            q: query,
+            sort: 'stars',
+        },
+        timeout: 15000,
+    });
+
+    const repositories: GitHubSearchRepo[] = Array.isArray(data?.items) ? data.items : [];
+    const items = repositories.map((repo) => {
+            const descriptionParts = [normalizeText(repo.description)];
+            if (repo.language) {
+                descriptionParts.push(`Language: ${repo.language}`);
+            }
+            if (repo.stargazers_count !== undefined) {
+                descriptionParts.push(`Stars: ${repo.stargazers_count}`);
+            }
+            if (repo.forks_count !== undefined) {
+                descriptionParts.push(`Forks: ${repo.forks_count}`);
+            }
+
+            const item: GitHubTrendingItem = {
+                title: repo.full_name,
+                author: repo.owner?.login,
+                description: descriptionParts.filter(Boolean).join('<br>'),
+                link: repo.html_url,
+            };
+            return item;
+        });
+
+    if (items.length === 0) {
+        throw new Error('GitHub fallback API returned no repositories.');
     }
+
+    return items;
+}
+
+async function handler(ctx) {
     const since = ctx.req.param('since');
-    const language = ctx.req.param('language') === 'any' ? '' : ctx.req.param('language');
-    const spoken_language = ctx.req.param('spoken_language') ?? '';
+    const languageParam = ctx.req.param('language') ?? 'any';
+    const spokenLanguage = ctx.req.param('spoken_language') ?? '';
+    const language = languageParam === 'any' ? '' : languageParam;
 
-    const trendingUrl = `https://github.com/trending/${encodeURIComponent(language)}?since=${since}&spoken_language_code=${spoken_language}`;
-    const { data: trendingPage } = await got({
-        method: 'get',
-        url: trendingUrl,
-        headers: {
-            Referer: trendingUrl,
-        },
-    });
-    const $ = load(trendingPage);
+    const languageSegment = language ? `/${encodeURIComponent(language)}` : '';
+    const spokenLanguageQuery = spokenLanguage ? `&spoken_language_code=${encodeURIComponent(spokenLanguage)}` : '';
+    const trendingUrl = `https://github.com/trending${languageSegment}?since=${encodeURIComponent(since)}${spokenLanguageQuery}`;
+    let title = 'GitHub Trending';
+    let items: GitHubTrendingItem[];
 
-    const articles = $('article');
-    const trendingRepos = articles.toArray().map((item) => {
-        const [owner, name] = $(item).find('h2').text().split('/');
-        return {
-            name: name.trim(),
-            owner: owner.trim(),
-        };
-    });
+    try {
+        const { data: trendingPage } = await got({
+            method: 'get',
+            url: trendingUrl,
+            headers: {
+                Referer: trendingUrl,
+            },
+            timeout: 15000,
+        });
+        const $ = load(trendingPage);
 
-    const { data: repoData } = await got({
-        method: 'post',
-        url: 'https://api.github.com/graphql',
-        headers: {
-            Authorization: `bearer ${config.github.access_token}`,
-        },
-        json: {
-            query: `
-            query {
-            ${trendingRepos
-                .map(
-                    (repo, index) => `
-                _${index}: repository(owner: "${repo.owner}", name: "${repo.name}") {
-                    ...RepositoryFragment
+        const cards = $('article.Box-row').toArray();
+        items = cards
+            .map((card) => {
+                const href = $(card).find('h2 a').attr('href');
+                if (!href) {
+                    return null;
                 }
-            `
-                )
-                .join('\n')}
-            }
 
-            fragment RepositoryFragment on Repository {
-                description
-                forkCount
-                nameWithOwner
-                openGraphImageUrl
-                primaryLanguage {
-                    name
+                const nameWithOwner = href.replace(/^\/+/, '');
+                const [owner] = nameWithOwner.split('/');
+                const description = normalizeText($(card).find('p').first().text());
+                const languageName = normalizeText($(card).find('[itemprop="programmingLanguage"]').first().text());
+                const stars = normalizeText($(card).find('a[href$="/stargazers"]').first().text());
+                const forks = normalizeText($(card).find('a[href$="/forks"]').first().text());
+
+                const descriptionParts = [description];
+                if (languageName) {
+                    descriptionParts.push(`Language: ${languageName}`);
                 }
-                stargazerCount
-            }
-            `,
-        },
-    });
+                if (stars) {
+                    descriptionParts.push(`Stars: ${stars}`);
+                }
+                if (forks) {
+                    descriptionParts.push(`Forks: ${forks}`);
+                }
 
-    const repos = Object.values(repoData.data).map((repo) => {
-        const found = trendingRepos.find((r) => `${r.owner}/${r.name}` === repo.nameWithOwner);
-        return { ...found, ...repo };
-    });
+                return {
+                    title: nameWithOwner,
+                    author: owner,
+                    description: descriptionParts.filter(Boolean).join('<br>'),
+                    link: `https://github.com/${nameWithOwner}`,
+                };
+            })
+            .filter(Boolean);
+        title = normalizeText($('title').text()) || title;
+    } catch {
+        items = await fetchFallbackItems(language);
+        title = language ? `GitHub Trending (${language})` : 'GitHub Trending';
+    }
 
     return {
-        title: $('title').text(),
+        title,
         link: trendingUrl,
-        item: repos.map((r) => ({
-            title: r.nameWithOwner,
-            author: r.owner,
-            description: renderToString(
-                <>
-                    <img src={r.openGraphImageUrl} />
-                    <br />
-                    {r.description ? raw(r.description) : null}
-                    <br />
-                    <br />
-                    Language: {raw(r.primaryLanguage?.name || 'Unknown')}
-                    <br />
-                    Stars: {raw(String(r.stargazerCount))}
-                    <br />
-                    Forks: {raw(String(r.forkCount))}
-                </>
-            ),
-            link: `https://github.com/${r.nameWithOwner}`,
-        })),
+        item: items,
     };
 }

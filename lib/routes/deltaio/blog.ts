@@ -1,8 +1,9 @@
+import RSSParser from 'rss-parser';
+
 import { config } from '@/config';
 import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
-import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/blog',
@@ -30,29 +31,30 @@ export const route: Route = {
 
 async function handler() {
     const baseUrl = 'https://delta.io';
-    const dataUrl = `${baseUrl}/page-data/blog/page-data.json`;
+    const rssUrl = `${baseUrl}/rss.xml`;
+    const parser = new RSSParser();
 
-    const data = await cache.tryGet(
-        dataUrl,
+    const feed = await cache.tryGet(
+        rssUrl,
         async () => {
-            const { data } = await got(dataUrl);
-            return data;
+            const response = await got(rssUrl);
+            return parser.parseString(response.data);
         },
         config.cache.routeExpire,
         false
     );
 
-    const items = data.result.data.allMdx.edges.map(({ node }) => ({
-        title: node.frontmatter.title,
-        description: node.frontmatter.description,
-        author: node.frontmatter.author,
-        pubDate: parseDate(node.frontmatter.date),
-        link: `${baseUrl}${node.fields.slug}`,
-        itunes_item_image: `${baseUrl}${node.frontmatter.thumbnail.childImageSharp.gatsbyImageData.images.fallback.src}`,
+    const items = feed.items.map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        description: item.content || item.contentSnippet,
+        author: item.creator || item.author,
+        category: item.categories,
     }));
 
     return {
-        title: 'delta.io blog',
+        title: feed.title || 'delta.io blog',
         link: `${baseUrl}/blog`,
         item: items,
     };

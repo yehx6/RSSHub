@@ -69,7 +69,9 @@ docker run -d --name rsshub -p 127.0.0.1:1200:1200 -e CACHE_TYPE=memory rsshub-l
 - If port `1200` is occupied, free it first (`docker compose down` or stop conflicting container).
 - Keep only one RSSHub service bound to `127.0.0.1:1200` when the user asks for single-instance deployment.
 
-### 6. Verify route and XML output
+### 6. Verify route and XML output (two modes)
+
+#### 6A. Docker black-box verification
 
 ```powershell
 curl.exe -sS -D - http://127.0.0.1:1200/<namespace>/<route>
@@ -79,6 +81,20 @@ curl.exe -sS -D - http://127.0.0.1:1200/<namespace>/<route>
 - `HTTP/1.1 200 OK`
 - `Content-Type: application/xml; charset=utf-8`
 - XML body starts with `<?xml` and contains `<rss`.
+
+#### 6B. Local in-process verification (non-Docker)
+
+- Run the route through `lib/app.ts` directly without container endpoint dependency.
+
+```powershell
+node --import tsx --input-type=module -e "const { default: app } = await import('./lib/app.ts'); const res = await app.request('/<namespace>/<route>'); const text = await res.text(); console.log('status=' + res.status); console.log('content-type=' + (res.headers.get('content-type') ?? '')); console.log('has-rss=' + String(text.includes('<rss')));"
+```
+
+- Expect:
+- `status=200`
+- `content-type=application/xml; charset=utf-8`
+- `has-rss=true`
+- On Windows PowerShell, if script policy blocks `pnpm.ps1`, use `pnpm.cmd` for package scripts.
 
 ### 7. Report final subscription URLs
 

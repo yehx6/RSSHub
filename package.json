@@ -51,6 +51,7 @@
         "test": "npm run format:check && npm run vitest:coverage",
         "vitest": "cross-env NODE_ENV=test vitest",
         "vitest:coverage": "cross-env NODE_ENV=test vitest --coverage.enabled --reporter=junit",
+        "test:docker:no-param-routes": "tsx scripts/workflow/test-route/test-no-param-routes.ts",
         "vitest:fullroutes": "cross-env NODE_ENV=test FULL_ROUTES_TEST=true vitest --reporter=json --reporter=default --outputFile=\"./assets/build/test-full-routes.json\" routes",
         "vitest:watch": "cross-env NODE_ENV=test vitest --watch"
     },

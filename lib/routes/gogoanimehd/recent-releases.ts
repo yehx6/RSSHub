@@ -18,17 +18,18 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['developer.anitaku.to/'],
+            source: ['anitaku.to/'],
+            target: '/gogoanimehd/recent-releases',
         },
     ],
     name: 'Recent Releases',
     maintainers: ['user4302'],
     handler,
-    url: 'developer.anitaku.to/',
+    url: 'anitaku.to',
 };
 
 async function handler() {
-    const rootUrl = 'https://anitaku.to/home.html';
+    const rootUrl = 'https://anitaku.to/';
 
     const response = await got({
         method: 'get',
@@ -36,23 +37,28 @@ async function handler() {
     });
 
     const $ = load(response.data);
-    const recentReleases = $('.last_episodes');
-    const listItems = $(recentReleases).find('li');
+    const listItems = $('.last_episodes.loaddub .items > li').toArray();
 
-    const arrayOfItems = listItems.toArray().map((item) => {
-        const title = $(item).find('.name a').attr('title');
-        const episode = $(item).find('.episode').text();
-        const link = $(item).find('.name a').attr('href');
-        const img = $(item).find('.img a img').attr('src');
+    const arrayOfItems = listItems.flatMap((item) => {
+        const title = $(item).find('.name a').attr('title') || $(item).find('.name a').text().trim();
+        const episode = $(item).find('.episode').text().trim();
+        const relativeLink = $(item).find('.name a').attr('href');
+        const imageUrl = $(item).find('.img a img').attr('src');
 
-        const formattedDescription = `<h2>${episode}</h2><br/><img src='${img}' alt='${title}'>`;
+        if (!title || !relativeLink) {
+            return [];
+        }
 
-        const structuredData = {
-            title,
-            description: formattedDescription,
-            link,
-        };
-        return structuredData;
+        const link = new URL(relativeLink, rootUrl).href;
+        const description = imageUrl ? `<h2>${episode}</h2><br/><img src='${imageUrl}' alt='${title}'>` : `<h2>${episode}</h2>`;
+
+        return [
+            {
+                title,
+                description,
+                link,
+            },
+        ];
     });
 
     return {

@@ -227,15 +227,11 @@ function getAPI(isNumericRid: boolean, rid: string | number) {
 async function handler(ctx) {
     const isJsonFeed = ctx.req.query('format') === 'json';
     const args = ctx.req.param();
-    if (args.redirect1 || args.redirect2) {
-        // redirect old routes like /bilibili/ranking/0/3/1 or /bilibili/ranking/0/3/1/xxx
-        const embedArg = args.redirect2 ? '/' + args.redirect2 : '';
-        ctx.set('redirect', `/bilibili/ranking/${args.rid}${embedArg}`);
-        return null;
-    }
+    // Keep legacy paths like /bilibili/ranking/0/3/1 working without redirect.
+    const isLegacyPath = Boolean(args.redirect1 || args.redirect2);
 
     const rid = ctx.req.param('rid') || 'all';
-    const embed = !ctx.req.param('embed');
+    const embed = isLegacyPath ? true : !ctx.req.param('embed');
     const isNumericRid = /^\d+$/.test(rid);
 
     const { apiBase, apiParams, referer, ridChinese, link, ridType } = getAPI(isNumericRid, rid);
@@ -243,17 +239,43 @@ async function handler(ctx) {
         throw new Error('This type of ranking is not supported yet');
     }
 
-    const response = await ofetch(`${apiBase}?${apiParams}`, {
-        headers: {
-            Referer: referer,
-            origin: 'https://www.bilibili.com',
-        },
-    });
+    const cookie = await cache.getCookie();
+    const fetchRanking = (wbiVerifyString: string) => {
+        const verifiedParams = utils.addWbiVerifyInfo(utils.addDmVerifyInfo(apiParams, utils.getDmImgList()), wbiVerifyString);
+        return ofetch(`${apiBase}?${verifiedParams}`, {
+            headers: {
+                Referer: referer,
+                origin: 'https://www.bilibili.com',
+                Cookie: cookie,
+            },
+        });
+    };
 
-    if (response.code !== 0) {
-        throw new Error(response.message);
+    let wbiVerifyString = await cache.getWbiVerifyString();
+    let response = await fetchRanking(wbiVerifyString);
+    if (response.code === -352) {
+        wbiVerifyString = await cache.getWbiVerifyString(true);
+        response = await fetchRanking(wbiVerifyString);
     }
-    const data = response.data || response.result;
+    if (response.code === -352) {
+        wbiVerifyString = await cache.getWbiVerifyString(true);
+        response = await fetchRanking(wbiVerifyString);
+    }
+
+    let data;
+    if (response.code === 0) {
+        data = response.data || response.result;
+    } else {
+        if (isLegacyPath && isNumericRid) {
+            const legacyResponse = await ofetch(`https://api.bilibili.com/x/web-interface/ranking?rid=${rid}&day=3&type=1&arc_type=1`);
+            if (legacyResponse.code !== 0) {
+                throw new Error(response.message);
+            }
+            data = legacyResponse.data;
+        } else {
+            throw new Error(response.message);
+        }
+    }
     const list = data.list || [];
     return {
         title: `bilibili 排行榜-${ridChinese}`,
@@ -261,11 +283,13 @@ async function handler(ctx) {
         item: await Promise.all(
             list.map(async (item) => {
                 const subtitles = isJsonFeed && !config.bilibili.excludeSubtitles && item.bvid ? await cache.getVideoSubtitleAttachment(item.bvid) : [];
+                const author = item.owner?.name ?? item.author;
+                const duration = typeof item.duration === 'number' ? item.duration : undefined;
                 return {
                     title: item.title,
                     description: utils.renderUGCDescription(embed, item.pic, item.desc || item.title, item.aid, undefined, item.bvid),
                     pubDate: item.ctime && parseDate(item.ctime, 'X'),
-                    author: item.owner.name,
+                    author,
                     link: !item.ctime || (item.ctime > utils.bvidTime && item.bvid) ? `https://www.bilibili.com/video/${item.bvid}` : `https://www.bilibili.com/video/av${item.aid}`,
                     image: item.pic,
                     attachments: item.bvid
@@ -273,7 +297,7 @@ async function handler(ctx) {
                               {
                                   url: getVideoUrl(item.bvid),
                                   mime_type: 'text/html',
-                                  duration_in_seconds: item.duration,
+                                  duration_in_seconds: duration,
                               },
                               ...subtitles,
                           ]

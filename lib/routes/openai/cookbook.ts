@@ -2,18 +2,18 @@ import { load } from 'cheerio';
 
 import type { Route } from '@/types';
 import cache from '@/utils/cache';
-import logger from '@/utils/logger';
-import ofetch from '@/utils/ofetch';
+import got from '@/utils/got';
+import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
     path: '/cookbook',
     categories: ['programming'],
-    description:
-        'OpenAI Cookbook 提供了大量使用 OpenAI API 的实用指南和示例代码,涵盖了从基础到高级的各种主题,包括 GPT 模型、嵌入、函数调用、微调等。这里汇集了最新的 API 功能介绍和流行的应用案例,是开发者学习和应用 OpenAI 技术的宝贵资源。',
+    description: 'OpenAI Cookbook examples and guides.',
     maintainers: ['liyaozhong'],
     radar: [
         {
             source: ['cookbook.openai.com/'],
+            target: '/openai/cookbook',
         },
     ],
     url: 'cookbook.openai.com/',
@@ -25,54 +25,53 @@ export const route: Route = {
 async function handler() {
     const rootUrl = 'https://cookbook.openai.com';
     const currentUrl = `${rootUrl}/`;
+    const response = await got(currentUrl);
+    const $ = load(response.data);
 
-    try {
-        const response = await ofetch(currentUrl);
-        const $ = load(response);
+    const list = $('a[href^="/cookbook/examples/"], a[href^="/examples/"]')
+        .toArray()
+        .map((element) => {
+            const href = $(element).attr('href');
+            const title = $(element).text().trim();
+            if (!href || !title) {
+                return;
+            }
 
-        let items = $('[class="min-h-[90vh] mt-4"] .grid a')
-            .toArray()
-            .map((element) => {
-                const $element = $(element);
-                const $title = $element.find('div.font-semibold.text-sm.text-primary.line-clamp-1.overflow-ellipsis');
-                const $date = $element.find(String.raw`span.text-xs.text-muted-foreground.md\:w-24.text-end`);
-                const $author = $element.find('p:contains("OpenAI")');
-                const $tags = $element.find('span[style^="color:"]');
+            const normalizedPath = href.startsWith('/cookbook/examples/') ? href.replace('/cookbook', '') : href;
+            return {
+                title,
+                link: new URL(normalizedPath, rootUrl).href,
+            };
+        })
+        .filter(Boolean)
+        .filter((item, index, array) => array.findIndex((entry) => entry.link === item.link) === index);
+
+    const items = await Promise.all(
+        list.map((item) =>
+            cache.tryGet(item.link, async () => {
+                const detailResponse = await got(item.link);
+                const detail = load(detailResponse.data);
+                const content = detail('main').first();
+                const dateText = content.text().match(/\b[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}\b/)?.[0];
+                const categories = detail('a[href*="/topic/"]')
+                    .toArray()
+                    .map((element) => detail(element).text().trim())
+                    .filter(Boolean);
 
                 return {
-                    title: $title.text().trim(),
-                    link: `${rootUrl}/${$element.attr('href')}`,
-                    pubDate: $date.text().trim(),
-                    author: $author.text().replace('OpenAI', '').trim(),
-                    category: $tags.toArray().map((tag) => $(tag).text().trim()),
+                    title: item.title,
+                    link: item.link,
+                    pubDate: dateText ? parseDate(dateText, 'MMM D, YYYY') : undefined,
+                    category: categories,
+                    description: content.html() || `<p>${item.title}</p>`,
                 };
-            });
+            })
+        )
+    );
 
-        items = (
-            await Promise.all(
-                items.map((item) =>
-                    cache.tryGet(item.link, async () => {
-                        try {
-                            const detailResponse = await ofetch(item.link);
-                            const $ = load(detailResponse);
-
-                            item.description = $(String.raw`article.prose.prose-sm.sm\:prose-base.max-w-none.dark\:prose-invert`).html();
-                            return item;
-                        } catch {
-                            return { ...item, description: '' };
-                        }
-                    })
-                )
-            )
-        ).filter((item) => item?.description);
-
-        return {
-            title: 'OpenAI Cookbook',
-            link: currentUrl,
-            item: items,
-        };
-    } catch (error) {
-        logger.error(`处理 OpenAI Cookbook 请求时发生错误: ${error}`);
-        throw error;
-    }
+    return {
+        title: 'OpenAI Cookbook',
+        link: currentUrl,
+        item: items,
+    };
 }

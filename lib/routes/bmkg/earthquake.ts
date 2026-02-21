@@ -1,9 +1,6 @@
-import { load } from 'cheerio';
-
 import type { Route } from '@/types';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
 
 export const route: Route = {
     path: '/earthquake',
@@ -20,35 +17,42 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['bmkg.go.id/', 'bmkg.go.id/gempabumi-terkini.html'],
+            source: ['data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json'],
+            target: '/bmkg/earthquake',
         },
     ],
     name: 'Recent Earthquakes',
     maintainers: ['Shinanory'],
     handler,
-    url: 'bmkg.go.id/',
+    url: 'bmkg.go.id/gempabumi',
 };
 
 async function handler() {
-    const url = 'https://www.bmkg.go.id/gempabumi-terkini.html';
-    const response = await got(url);
-    const $ = load(response.data);
-    const items = $('div .table-responsive tbody tr')
-        .toArray()
-        .map((item) => {
-            item = $(item);
-            const td = item.find('td');
-            return {
-                title: `${td[2].children[0].data}|${td[3].children[0].data}|${td[4].children[0].data}|${td[5].children[0].data}|${td[6].children[0].data}`,
-                link: url,
-                pubDate: timezone(parseDate(`${td[1].children[0].data} ${td[1].children[2].data.slice(0, 8)}`, 'DD-MM-YY HH:mm:ss'), +7),
-            };
-        });
+    const apiUrl = 'https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json';
+    const pageUrl = 'https://www.bmkg.go.id/gempabumi';
+    const response = await got(apiUrl);
+    const earthquakes = response.data?.Infogempa?.gempa ?? [];
+
+    const items = earthquakes.map((item) => ({
+        title: `M${item.Magnitude} - ${item.Wilayah}`,
+        link: pageUrl,
+        pubDate: item.DateTime ? parseDate(item.DateTime) : undefined,
+        description: [
+            `<p><strong>Tanggal:</strong> ${item.Tanggal}</p>`,
+            `<p><strong>Waktu:</strong> ${item.Jam}</p>`,
+            `<p><strong>Lokasi:</strong> ${item.Coordinates} (${item.Lintang}, ${item.Bujur})</p>`,
+            `<p><strong>Kedalaman:</strong> ${item.Kedalaman}</p>`,
+            `<p><strong>Magnitudo:</strong> ${item.Magnitude}</p>`,
+            `<p><strong>Wilayah:</strong> ${item.Wilayah}</p>`,
+            `<p><strong>Potensi:</strong> ${item.Potensi}</p>`,
+            item.Shakemap ? `<p><img src="https://data.bmkg.go.id/DataMKG/TEWS/${item.Shakemap}" /></p>` : '',
+        ].join(''),
+    }));
 
     return {
-        title: $('title').text(),
-        link: url,
-        description: '印尼气象气候和地球物理局 最近的地震(M ≥ 5.0) | BMKG earthquake',
+        title: 'Recent Earthquakes - BMKG',
+        link: pageUrl,
+        description: 'Recent earthquake data from BMKG',
         item: items,
         language: 'in',
     };

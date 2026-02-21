@@ -1,7 +1,9 @@
+import { load } from 'cheerio';
+
 import type { Route } from '@/types';
+import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
 
 import { rootUrl } from './utils';
 
@@ -20,33 +22,63 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['0daily.com/newsflash', '0daily.com/'],
+            source: ['odaily.news/newsflash', 'odaily.news/'],
         },
     ],
     name: '快讯',
     maintainers: ['nczitzk'],
     handler,
-    url: '0daily.com/newsflash',
+    url: 'odaily.news/newsflash',
 };
 
 async function handler(ctx) {
-    const currentUrl = `${rootUrl}/api/pp/api/info-flow/newsflash_columns/newsflashes?b_id=&per_page=${ctx.req.query('limit') ?? 100}`;
+    const currentUrl = `${rootUrl}/zh-CN/newsflash`;
+    const response = await got(currentUrl);
+    const $ = load(response.data);
+    const limit = Number.parseInt(ctx.req.query('limit') ?? '100', 10);
 
-    const response = await got({
-        method: 'get',
-        url: currentUrl,
-    });
+    const list = $('a[href*="/zh-CN/newsflash/"]')
+        .toArray()
+        .map((element) => {
+            const href = $(element).attr('href');
+            const title = $(element).text().trim();
 
-    const items = response.data.data.items.map((item) => ({
-        title: item.title,
-        link: item.news_url,
-        pubDate: timezone(parseDate(item.published_at), +8),
-        description: `<p>${item.description}</p>`,
-    }));
+            if (!href || !title) {
+                return;
+            }
+
+            return {
+                title,
+                link: new URL(href, rootUrl).href,
+            };
+        })
+        .filter(Boolean)
+        .filter((item, index, array) => array.findIndex((entry) => entry.link === item.link) === index)
+        .slice(0, limit);
+
+    const items = await Promise.all(
+        list.map((item) =>
+            cache.tryGet(item.link, async () => {
+                const detailResponse = await got(item.link);
+                const detail = load(detailResponse.data);
+                const content = detail('div[class*="DetailContent_detail__"]');
+                const dateText =
+                    detail('meta[property="article:published_time"]').attr('content') ??
+                    detail('main').text().match(/\b\d{4}-\d{2}-\d{2}T[^ \n<"]+/)?.[0];
+
+                return {
+                    title: item.title,
+                    link: item.link,
+                    pubDate: dateText ? parseDate(dateText) : undefined,
+                    description: content.html() || `<p>${item.title}</p>`,
+                };
+            })
+        )
+    );
 
     return {
         title: '快讯 - Odaily星球日报',
-        link: `${rootUrl}/newsflash`,
+        link: currentUrl,
         item: items,
     };
 }

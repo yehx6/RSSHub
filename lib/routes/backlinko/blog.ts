@@ -34,27 +34,47 @@ async function handler() {
     const { data: response, url: link } = await got(`${baseUrl}/blog`);
 
     const $ = load(response);
-    const nextData = JSON.parse($('#__NEXT_DATA__').text());
+    const nextDataText = $('#__NEXT_DATA__').text();
+    if (!nextDataText) {
+        throw new Error('Unable to parse __NEXT_DATA__ from Backlinko blog page');
+    }
+
+    const nextData = JSON.parse(nextDataText);
     const {
         buildId,
-        props: { pageProps },
+        props,
     } = nextData;
+    const pageProps = props?.pageProps?.props;
 
-    const posts = [...pageProps.posts.nodes, ...pageProps.backlinkoLockedPosts.nodes].map((post) => ({
-        title: post.title,
-        link: `${baseUrl}/${post.slug}`,
-        pubDate: parseDate(post.modified),
-        author: post.author.node.name,
-        apiUrl: `${baseUrl}/_next/data/${buildId}/${post.slug}.json`,
-    }));
+    const postNodes = pageProps?.posts?.nodes ?? [];
+    const lockedPostNodes = pageProps?.lockedPosts?.nodes ?? pageProps?.backlinkoLockedPosts?.nodes ?? [];
+    const list = [...postNodes, ...lockedPostNodes]
+        .map((post) => {
+            const slug = String(post?.slug ?? '').replace(/^\//, '');
+            if (!slug) {
+                return;
+            }
+
+            return {
+                title: post.title,
+                link: `${baseUrl}/${slug}`,
+                pubDate: post.modified ? parseDate(post.modified) : undefined,
+                author: post.author?.node?.name ?? post.author?.name,
+                description: post.customFeedContent,
+                apiUrl: `${baseUrl}/_next/data/${buildId}/${slug}.json`,
+            };
+        })
+        .filter(Boolean);
 
     const items = await Promise.all(
-        posts.map((item) =>
+        list.map((item) =>
             cache.tryGet(item.link, async () => {
                 const { data } = await got(item.apiUrl);
-                const post = data.pageProps.post || data.pageProps.lockedPost;
+                const post = data.pageProps?.post || data.pageProps?.lockedPost || data.pageProps?.props?.post;
 
-                item.description = post.content;
+                item.description = post?.customFeedContent || post?.content || item.description;
+                item.pubDate = item.pubDate ?? (post?.modified ? parseDate(post.modified) : undefined);
+                item.author = item.author ?? (post?.author?.node?.name || post?.author?.name);
 
                 return item;
             })
@@ -62,8 +82,8 @@ async function handler() {
     );
 
     return {
-        title: pageProps.page.seo.title,
-        description: pageProps.page.seo.metaDesc,
+        title: pageProps?.seo?.title || $('title').text(),
+        description: pageProps?.seo?.metaDesc,
         link,
         language: 'en',
         item: items,

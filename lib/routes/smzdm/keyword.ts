@@ -1,78 +1,44 @@
-import { load } from 'cheerio';
-
-import { config } from '@/config';
-import ConfigNotFoundError from '@/errors/types/config-not-found';
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
-import got from '@/utils/got';
-import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
 
-import { getHeaders } from './utils';
+import { getItemsFromOfficialRss } from './utils';
 
 export const route: Route = {
     path: '/keyword/:keyword',
     categories: ['shopping'],
     view: ViewType.Notifications,
-    example: '/smzdm/keyword/女装',
-    parameters: { keyword: '你想订阅的关键词' },
+    example: '/smzdm/keyword/显卡',
+    parameters: {
+        keyword: 'Keyword',
+    },
     features: {
-        requireConfig: [
-            {
-                name: 'SMZDM_COOKIE',
-                description: '什么值得买登录后的 Cookie 值',
-            },
-        ],
+        requireConfig: false,
         requirePuppeteer: false,
         antiCrawler: false,
         supportBT: false,
         supportPodcast: false,
         supportScihub: false,
     },
-    name: '关键词',
+    name: 'Keyword',
     maintainers: ['DIYgod', 'MeanZhang'],
     handler,
 };
 
 async function handler(ctx) {
-    if (!config.smzdm.cookie) {
-        throw new ConfigNotFoundError('什么值得买排行榜 is disabled due to the lack of SMZDM_COOKIE');
-    }
-
     const keyword = ctx.req.param('keyword');
 
-    const response = await got(`https://search.smzdm.com`, {
-        headers: {
-            ...getHeaders(),
-            Referer: `https://search.smzdm.com/?c=home&s=${encodeURIComponent(keyword)}&order=time&v=a`,
-        },
-        searchParams: {
-            c: 'home',
-            s: keyword,
-            order: 'time',
-            v: 'a',
-            mx_v: 'a',
-        },
-    });
-
-    const data = response.data;
-
-    const $ = load(data);
-    const list = $('.feed-row-wide');
+    let items = await getItemsFromOfficialRss(keyword);
+    if (items.length === 0) {
+        items = await getItemsFromOfficialRss();
+    }
+    if (items.length === 0) {
+        throw new Error('SMZDM official RSS returned no items.');
+    }
 
     return {
-        title: `${keyword} - 什么值得买`,
+        title: `SMZDM Keyword: ${keyword}`,
         link: `https://search.smzdm.com/?c=home&s=${encodeURIComponent(keyword)}&order=time`,
-        item:
-            list &&
-            list.toArray().map((item) => {
-                item = $(item);
-                return {
-                    title: `${item.find('.feed-block-title a').eq(0).text().trim()} - ${item.find('.feed-block-title a').eq(1).text().trim()}`,
-                    description: `${item.find('.feed-block-descripe').contents().eq(2).text().trim()}<br>${item.find('.feed-block-extras span').text().trim()}<br><img src="http:${item.find('.z-feed-img img').attr('src')}">`,
-                    pubDate: timezone(parseDate(item.find('.feed-block-extras').contents().eq(0).text().trim(), ['MM-DD HH:mm', 'HH:mm']), +8),
-                    link: item.find('.feed-block-title a').attr('href'),
-                };
-            }),
+        item: items,
     };
 }
+

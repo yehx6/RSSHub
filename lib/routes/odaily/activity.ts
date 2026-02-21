@@ -4,7 +4,6 @@ import type { Route } from '@/types';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import { parseDate } from '@/utils/parse-date';
-import timezone from '@/utils/timezone';
 
 import { rootUrl } from './utils';
 
@@ -23,58 +22,65 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['0daily.com/activityPage', '0daily.com/'],
+            source: ['odaily.news/activity', 'odaily.news/'],
         },
     ],
     name: '活动',
     maintainers: ['nczitzk'],
     handler,
-    url: '0daily.com/activityPage',
+    url: 'odaily.news/activity',
 };
 
 async function handler(ctx) {
-    const currentUrl = `${rootUrl}/service/scheme/group/8?page=1&per_page=${ctx.req.query('limit') ?? 25}`;
+    const currentUrl = `${rootUrl}/zh-CN/activity`;
+    const response = await got(currentUrl);
+    const $ = load(response.data);
+    const limit = Number.parseInt(ctx.req.query('limit') ?? '25', 10);
 
-    const response = await got({
-        method: 'get',
-        url: currentUrl,
-    });
+    const list = $('a[href*="/zh-CN/activity/"]')
+        .toArray()
+        .map((element) => {
+            const href = $(element).attr('href');
+            const title = $(element).text().trim();
+            const surroundingText = $(element).parent().parent().text().replaceAll(/\s+/g, ' ');
+            const dateText = surroundingText.match(/\b\d{4}\/\d{2}\/\d{2}\b/)?.[0];
 
-    let items = response.data.data.items.data.map((item) => ({
-        title: item.title,
-        link: `${rootUrl}/activity/${item.id}`,
-        pubDate: timezone(parseDate(item.published_at), +8),
-    }));
+            if (!href || !title) {
+                return;
+            }
 
-    items = await Promise.all(
-        items.map((item) =>
+            return {
+                title,
+                link: new URL(href, rootUrl).href,
+                pubDate: dateText ? parseDate(dateText, 'YYYY/MM/DD') : undefined,
+            };
+        })
+        .filter(Boolean)
+        .filter((item, index, array) => array.findIndex((entry) => entry.link === item.link) === index)
+        .slice(0, limit);
+
+    const items = await Promise.all(
+        list.map((item) =>
             cache.tryGet(item.link, async () => {
-                const detailResponse = await got({
-                    method: 'get',
-                    url: item.link,
-                });
+                const detailResponse = await got(item.link);
+                const detail = load(detailResponse.data);
+                const content = detail('div[class*="DetailContent_detail__"]');
+                const detailText = detail('main').text().replaceAll(/\s+/g, ' ');
+                const detailDateText = detailText.match(/\b\d{4}\/\d{2}\/\d{2}\b/)?.[0];
 
-                const content = load(detailResponse.data.match(/"content":"(.*)"}},"secondaryList":/)[1]);
-
-                content('img').each(function () {
-                    content(this).attr(
-                        'src',
-                        content(this)
-                            .attr('src')
-                            .replaceAll(String.raw`\"`, '')
-                    );
-                });
-
-                item.description = content.html();
-
-                return item;
+                return {
+                    title: item.title,
+                    link: item.link,
+                    pubDate: item.pubDate ?? (detailDateText ? parseDate(detailDateText, 'YYYY/MM/DD') : undefined),
+                    description: content.html() || `<p>${item.title}</p>`,
+                };
             })
         )
     );
 
     return {
         title: '活动 - Odaily星球日报',
-        link: `${rootUrl}/activityPage`,
+        link: currentUrl,
         item: items,
     };
 }

@@ -130,3 +130,31 @@
 
 - `skills/rsshub-route-rebuild`: Unified workflow for adding or fixing RSSHub routes. Covers namespace/route metadata checks, RSS normalization, common parsing pitfalls, Docker rebuild, single-instance deployment on port `1200`, and final feed URL verification for FreshRSS usage.
 - `scripts/validate-skill.ps1`: Validate the RSSHub skill using the `minimind` conda environment path.
+
+## Route Testing Modes
+
+- `Docker black-box` (deployment verification): test through local endpoint.
+  - `curl.exe -sS -D - http://127.0.0.1:1200/<namespace>/<route>`
+  - Expect `200`, `application/xml`, and `<rss` in body.
+- `Local in-process white-box` (non-Docker verification): test by importing `lib/app.ts` and calling `app.request()` directly.
+  - `node --import tsx --input-type=module -e "const { default: app } = await import('./lib/app.ts'); const res = await app.request('/<namespace>/<route>'); const text = await res.text(); console.log('status=' + res.status); console.log('content-type=' + (res.headers.get('content-type') ?? '')); console.log('has-rss=' + String(text.includes('<rss')));"`
+  - Use this mode when you need route-level validation without container networking.
+- On this Windows environment, prefer `pnpm.cmd` over `pnpm` if PowerShell execution policy blocks `pnpm.ps1`.
+- Python runtime note (important): use conda environment `task_with_rss` for all Python commands on this machine.
+  - Preferred (most stable on this host): `D:\conda_python_env\task_with_rss\python.exe <script_or_args>`
+  - Alternative: `conda run -p D:\conda_python_env\task_with_rss python <script_or_args>`
+  - Avoid plain `python ...` in PowerShell, which may point to an inaccessible interpreter.
+
+## Docker Local Build Notes
+
+- Keep `rsshub` as local-source build (`build.context: .`) and keep dependency services (`redis`, `browserless`, `real-browser`) on their upstream images.
+- When local code changes, do not rely on plain `docker compose up -d` for `rsshub` refresh.
+- Recommended refresh commands for local optimized code:
+  - `docker compose build rsshub`
+  - `docker compose up -d --no-deps --force-recreate rsshub`
+- If dependencies are not running, start them explicitly:
+  - `docker compose up -d redis browserless real-browser`
+- Deployment verification:
+  - `curl.exe -sS -D - http://127.0.0.1:1200/healthz`
+  - `curl.exe -sS -D - http://127.0.0.1:1200/<namespace>/<route>`
+- To avoid oversized local images, keep large runtime artifacts (e.g., `logs`) excluded via `.dockerignore`.

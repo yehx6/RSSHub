@@ -9,6 +9,7 @@ app-minimal
 coverage
 eslint-plugins
 node_modules
+logs
 test
 
 # files

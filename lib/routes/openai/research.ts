@@ -1,7 +1,7 @@
+import RSSParser from 'rss-parser';
+
 import type { Route } from '@/types';
 import got from '@/utils/got';
-
-import { getApiUrl, parseArticle } from './common';
 
 export const route: Route = {
     path: '/research',
@@ -19,34 +19,27 @@ export const route: Route = {
     name: 'Research',
     maintainers: ['yuguorui'],
     handler,
+    url: 'openai.com/research',
 };
 
-async function handler(ctx) {
-    const apiUrl = new URL('/api/v1/research-publications', await getApiUrl());
-    const researchRootUrl = 'https://openai.com/research';
+async function handler() {
+    const parser = new RSSParser();
+    const response = await got('https://openai.com/news/rss.xml');
+    const feed = await parser.parseString(response.data);
+    const researchItems = feed.items.filter((item) => item.categories?.some((category) => category.toLowerCase() === 'research'));
 
-    // Construct API query
-    apiUrl.searchParams.append('sort', '-publicationDate,-createdAt');
-    apiUrl.searchParams.append('include', 'media');
-
-    const resp = await got({
-        method: 'get',
-        url: apiUrl,
-    });
-    const obj = resp.data;
-
-    const items = await Promise.all(
-        obj.data.map((item) => {
-            const attributes = item.attributes;
-            return parseArticle(ctx, researchRootUrl, attributes);
-        })
-    );
-
-    const title = 'OpenAI Research';
+    const items = researchItems.map((item) => ({
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        description: item.content || item.contentSnippet,
+        author: item.creator || item.author,
+        category: item.categories,
+    }));
 
     return {
-        title,
-        link: researchRootUrl,
+        title: 'OpenAI Research',
+        link: 'https://openai.com/research',
         item: items,
     };
 }

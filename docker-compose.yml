@@ -2,6 +2,8 @@ services:
   rsshub:
     build:
       context: .
+      dockerfile: Dockerfile
+    pull_policy: never
     image: rsshub-local:latest
     entrypoint: ["npm", "run", "start"]
     restart: always
