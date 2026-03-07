@@ -20,6 +20,7 @@ const headers = {
     accept: 'application/json',
     'cache-control': 'no-cache',
     referer: 'https://www.bloomberg.com',
+    'x-prefer-proxy': '1',
 };
 
 const apiEndpoints = {
@@ -72,8 +73,11 @@ const redirectGot = (url) =>
     });
 
 const parseNewsList = async (url, ctx) => {
-    const resp = await got(url);
-    const $ = load(resp.data, {
+    const respText = await ofetch(url, {
+        headers: { 'x-prefer-proxy': '1' },
+        responseType: 'text',
+    });
+    const $ = load(respText, {
         xml: {
             xmlMode: true,
         },

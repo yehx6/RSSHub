@@ -19,6 +19,10 @@ const getInnertube = () => {
                 return fetch(url, {
                     method: input?.method,
                     ...init,
+                    headers: {
+                        ...((init as any)?.headers || {}),
+                        'x-prefer-proxy': '1',
+                    },
                 });
             },
         });

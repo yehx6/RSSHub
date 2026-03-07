@@ -1,5 +1,5 @@
 import type { Route } from '@/types';
-import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -17,38 +17,38 @@ export const route: Route = {
     },
     radar: [
         {
-            source: ['shortcuts.sspai.com/*'],
+            source: ['sspai.com/tag/Shortcuts'],
+            target: '/shortcuts',
         },
     ],
     name: 'Shortcuts Gallery',
     maintainers: ['Andiedie'],
     handler,
-    url: 'shortcuts.sspai.com/*',
+    url: 'sspai.com/tag/Shortcuts',
 };
 
+// shortcuts.sspai.com was shut down in 2024 and replaced by sspai.com/page/playbook.
+// The new Playbook API requires JWT authentication, so we use the public article-tag
+// API instead, which returns articles tagged with "Shortcuts".
+// ofetch returns the parsed JSON body directly (no `.data` wrapper), so `.data` here
+// is the array of articles from the response `{ data: [...], total: N }`.
 async function handler() {
-    const {
-        data: { data: categories },
-    } = await got('https://shortcuts.sspai.com/api/v1/user/workflow/all/get');
+    const { data: list } = await ofetch('https://sspai.com/api/v1/article/tag/page/get?limit=20&offset=0&tag=Shortcuts&type=0');
 
-    const items = [];
-
-    for (const category of categories) {
-        for (const shortcut of category.data || []) {
-            items.push({
-                title: shortcut.name,
-                description: `作者：<a href="${shortcut.author_url || '#'}">${shortcut.author_id}</a><br/>${decodeURIComponent((shortcut.description || '').replaceAll('+', '%20'))}`,
-                pubDate: parseDate(shortcut.utime * 1000),
-                guid: shortcut.id,
-                link: shortcut.url,
-            });
-        }
-    }
+    const items = (list ?? []).map((item) => ({
+        title: item.title,
+        description: item.summary,
+        pubDate: parseDate(item.released_time * 1000),
+        guid: String(item.id),
+        link: `https://sspai.com/post/${item.id}`,
+        author: item.author?.nickname ?? '',
+        image: item.banner ?? undefined,
+    }));
 
     return {
-        title: 'Shortcuts Gallery - 少数派',
-        link: 'https://shortcuts.sspai.com/#/main/workflow',
-        description: 'Shortcuts Gallery - 少数派',
+        title: 'Shortcuts - 少数派',
+        link: 'https://sspai.com/tag/Shortcuts',
+        description: 'Shortcuts 相关文章 - 少数派',
         item: items,
     };
 }

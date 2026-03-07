@@ -17,6 +17,10 @@ services:
       PUPPETEER_REAL_BROWSER_SERVICE: http://real-browser:3000
       CACHE_EXPIRE: 1800
       CACHE_CONTENT_EXPIRE: 3600
+      PROXY_URI: http://host.docker.internal:7897
+      PROXY_STRATEGY: on_retry
+      REQUEST_TIMEOUT: 15000
+      YOUTUBE_KEY: AIzaSyDMvEzH9yGKZAv5HG0huYnOxZGd3RK8760
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1200/healthz"]
       interval: 30s

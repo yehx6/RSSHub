@@ -2,7 +2,7 @@ import { load } from 'cheerio';
 
 import type { Route } from '@/types';
 import cache from '@/utils/cache';
-import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 import parser from '@/utils/rss-parser';
 
 export const route: Route = {
@@ -37,20 +37,23 @@ async function handler(ctx) {
 
     const link = `https://www.ft.com/myft/following/${ctx.req.param('key')}.rss`;
 
-    const feed = await parser.parseURL(link);
+    const xml = await ofetch(link, {
+        headers: { 'x-prefer-proxy': '1' },
+        responseType: 'text',
+    });
+    const feed = await parser.parseString(xml);
 
     const items = await Promise.all(
         feed.items.map((item) =>
             cache.tryGet(item.link, async () => {
-                const response = await got({
-                    method: 'get',
-                    url: item.link,
+                const response = await ofetch(item.link, {
                     headers: {
                         Referer: 'https://www.facebook.com',
+                        'x-prefer-proxy': '1',
                     },
                 });
 
-                const $ = load(response.data);
+                const $ = load(response);
 
                 item.description = ProcessFeed($('article.js-article__content-body'));
                 item.category = [

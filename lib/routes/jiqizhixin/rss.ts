@@ -1,4 +1,5 @@
 import type { DataItem, Route } from '@/types';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 import parser from '@/utils/rss-parser';
 
@@ -44,7 +45,11 @@ export const route: Route = {
 };
 
 async function handler() {
-    const feed = await parser.parseURL(sourceUrl);
+    const xml = await ofetch(sourceUrl, {
+        headers: { 'x-prefer-proxy': '1' },
+        responseType: 'text',
+    });
+    const feed = await parser.parseString(xml);
     const item = feed.items.map((entry) => normalizeItem(entry)).filter((entry): entry is RouteItem => Boolean(entry));
 
     return {

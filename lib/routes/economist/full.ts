@@ -3,13 +3,15 @@ import { load } from 'cheerio';
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
-import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 import parser from '@/utils/rss-parser';
 
 const getArticleDetail = (link) =>
     cache.tryGet(link, async () => {
-        const response = await got(link);
-        const $ = load(response.data);
+        const response = await ofetch(link, {
+            headers: { 'x-prefer-proxy': '1' },
+        });
+        const $ = load(response);
         $('div.article-audio-player__center-tooltip').remove();
         const nextData = JSON.parse($('head script[type="application/ld+json"]').first().text());
 
@@ -47,7 +49,12 @@ export const route: Route = {
 
 async function handler(ctx) {
     const endpoint = ctx.req.param('endpoint');
-    const feed = await parser.parseURL(`https://www.economist.com/${endpoint}/rss.xml`);
+    const rssUrl = `https://www.economist.com/${endpoint}/rss.xml`;
+    const xml = await ofetch(rssUrl, {
+        headers: { 'x-prefer-proxy': '1' },
+        responseType: 'text',
+    });
+    const feed = await parser.parseString(xml);
 
     const items = await Promise.all(
         feed.items.slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit'), 10) : 30).map(async (item) => {

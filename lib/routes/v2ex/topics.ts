@@ -1,6 +1,6 @@
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
-import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -40,7 +40,9 @@ export const route: Route = {
 async function handler(ctx) {
     const type = ctx.req.param('type');
 
-    const { data } = await got(`https://www.v2ex.com/api/topics/${type}.json`);
+    const data = await ofetch(`https://www.v2ex.com/api/topics/${type}.json`, {
+        headers: { 'x-prefer-proxy': '1' },
+    });
 
     let title;
     if (type === 'hot') {

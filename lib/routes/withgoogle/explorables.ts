@@ -21,6 +21,7 @@ export const route: Route = {
         const baseUrl = 'https://pair.withgoogle.com';
         const response = await ofetch(baseUrl + '/explorables', {
             method: 'GET',
+            headers: { 'x-prefer-proxy': '1' },
         });
         const $ = load(response);
         const items = await Promise.all(
@@ -31,7 +32,9 @@ export const route: Route = {
                     const image = $(el).find('img').attr('src');
                     const link = baseUrl + $(el).find('a').attr('href');
                     return (await cache.tryGet(link, async () => {
-                        const response = await ofetch(link);
+                        const response = await ofetch(link, {
+                            headers: { 'x-prefer-proxy': '1' },
+                        });
                         const $item = load(response);
                         let description = $item('body').html();
                         if (!description || description.trim() === '') {

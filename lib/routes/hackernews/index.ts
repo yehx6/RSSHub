@@ -3,7 +3,7 @@ import { load } from 'cheerio';
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
-import got from '@/utils/got';
+import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
 export const route: Route = {
@@ -55,9 +55,11 @@ async function handler(ctx) {
     }
 
     const currentUrl = `${rootUrl}${sectionUrl}${optUrl}`;
-    const response = await got(currentUrl);
+    const response = await ofetch(currentUrl, {
+        headers: { 'x-prefer-proxy': '1' },
+    });
 
-    const $ = load(response.data);
+    const $ = load(response);
 
     const list = $('.athing')
         .slice(0, ctx.req.query('limit') ? Number.parseInt(ctx.req.query('limit')) : 30)
@@ -94,12 +96,11 @@ async function handler(ctx) {
         list.map((item) =>
             cache.tryGet(item.guid, async () => {
                 if (item.comments !== 'discuss' && type === 'comments') {
-                    const detailResponse = await got({
-                        method: 'get',
-                        url: item.link,
+                    const detailResponse = await ofetch(item.link, {
+                        headers: { 'x-prefer-proxy': '1' },
                     });
 
-                    const content = load(detailResponse.data);
+                    const content = load(detailResponse);
 
                     content('.reply').remove();
 

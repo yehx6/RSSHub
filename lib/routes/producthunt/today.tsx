@@ -34,6 +34,7 @@ async function handler() {
     const response = await ofetch('https://www.producthunt.com/', {
         headers: {
             'User-Agent': config.trueUA,
+            'x-prefer-proxy': '1',
         },
     });
 
