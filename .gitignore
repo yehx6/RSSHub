@@ -19,6 +19,8 @@ CLAUDE.md
 
 *.swp
 *.iml
+*.xlsx
+~$*
 
 app-minimal/
 assets/build/
